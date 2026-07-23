@@ -1,5 +1,6 @@
 const express = require("express");
 const http = require("http");
+const path = require("path");
 const { Server } = require("socket.io");
 const cors = require("cors");
 
@@ -10,6 +11,7 @@ const PORT = process.env.PORT || 10000;
 
 const allowedOrigins = [
     "https://miladnaji123.github.io",
+    "https://milad-game-server.onrender.com",
     "http://localhost:3000",
     "http://localhost:5500"
 ];
@@ -21,6 +23,9 @@ app.use(cors({
 
 app.use(express.json());
 
+// نمایش فایل‌های پروژه
+app.use(express.static(__dirname));
+
 const io = new Server(server, {
     cors: {
         origin: allowedOrigins,
@@ -28,9 +33,9 @@ const io = new Server(server, {
     }
 });
 
-// فقط برای تست سرور
+// صفحه اصلی
 app.get("/", (req, res) => {
-    res.status(200).send("🎲 Milad Game Server is running!");
+    res.sendFile(path.join(__dirname, "index.html"));
 });
 
 // تست سلامت سرور
@@ -45,7 +50,7 @@ app.get("/health", (req, res) => {
 // اتاق‌های بازی
 const rooms = new Map();
 
-// ساخت کد ۶ رقمی اتاق
+// ساخت کد ۶ رقمی
 function createRoomCode() {
     let code;
 
@@ -73,25 +78,24 @@ io.on("connection", (socket) => {
         });
 
         socket.join(roomCode);
-
         socket.roomCode = roomCode;
 
         socket.emit("roomCreated", {
-            roomCode: roomCode
+            roomCode
         });
 
         console.log(
             "Room created:",
-            roomCode,
-            "by",
-            socket.id
+            roomCode
         );
     });
 
     // ورود به اتاق
     socket.on("joinRoom", (roomCode) => {
 
-        roomCode = String(roomCode || "").trim();
+        roomCode = String(
+            roomCode || ""
+        ).trim();
 
         const room = rooms.get(roomCode);
 
@@ -116,16 +120,18 @@ io.on("connection", (socket) => {
         room.players.push(socket.id);
 
         socket.join(roomCode);
-
         socket.roomCode = roomCode;
 
         socket.emit("joinedRoom", {
-            roomCode: roomCode
+            roomCode
         });
 
-        io.to(roomCode).emit("playersUpdate", {
-            players: room.players.length
-        });
+        io.to(roomCode).emit(
+            "playersUpdate",
+            {
+                players: room.players.length
+            }
+        );
 
         if (room.players.length === 2) {
 
@@ -139,49 +145,79 @@ io.on("connection", (socket) => {
         }
 
         console.log(
-            "Player joined room:",
-            roomCode,
-            socket.id
+            "Player joined:",
+            socket.id,
+            "Room:",
+            roomCode
         );
     });
 
-    // ارسال حرکت بازی به بازیکن دیگر
+    // ارسال حرکت
     socket.on("gameMove", (data) => {
 
-        const roomCode = socket.roomCode;
+        const roomCode =
+            socket.roomCode;
 
         if (!roomCode) return;
 
-        socket.to(roomCode).emit(
-            "gameMove",
-            data
-        );
+        socket
+            .to(roomCode)
+            .emit(
+                "gameMove",
+                data
+            );
     });
 
-    // ارسال وضعیت بازی
+    // ارسال وضعیت کامل بازی
     socket.on("gameState", (data) => {
 
-        const roomCode = socket.roomCode;
+        const roomCode =
+            socket.roomCode;
 
         if (!roomCode) return;
 
-        socket.to(roomCode).emit(
-            "gameState",
-            data
-        );
+        socket
+            .to(roomCode)
+            .emit(
+                "gameState",
+                data
+            );
+    });
+
+    // ارسال تاس
+    socket.on("diceRolled", (data) => {
+
+        const roomCode =
+            socket.roomCode;
+
+        if (!roomCode) return;
+
+        socket
+            .to(roomCode)
+            .emit(
+                "diceRolled",
+                data
+            );
     });
 
     // چت
     socket.on("chatMessage", (data) => {
 
-        const roomCode = socket.roomCode;
+        const roomCode =
+            socket.roomCode;
 
         if (!roomCode) return;
 
         const message = {
-            text: String(data?.text || "").slice(0, 500),
+            text: String(
+                data?.text || ""
+            ).slice(0, 500),
+
             sender: socket.id,
-            time: new Date().toISOString()
+
+            time:
+                new Date()
+                .toISOString()
         };
 
         io.to(roomCode).emit(
@@ -198,11 +234,13 @@ io.on("connection", (socket) => {
             socket.id
         );
 
-        const roomCode = socket.roomCode;
+        const roomCode =
+            socket.roomCode;
 
         if (!roomCode) return;
 
-        const room = rooms.get(roomCode);
+        const room =
+            rooms.get(roomCode);
 
         if (!room) return;
 
@@ -215,9 +253,13 @@ io.on("connection", (socket) => {
             "playerDisconnected"
         );
 
-        if (room.players.length === 0) {
+        if (
+            room.players.length === 0
+        ) {
 
-            rooms.delete(roomCode);
+            rooms.delete(
+                roomCode
+            );
 
             console.log(
                 "Room deleted:",
