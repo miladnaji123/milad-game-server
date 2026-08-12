@@ -1,6 +1,5 @@
 const express = require("express");
 const http = require("http");
-const path = require("path");
 const { Server } = require("socket.io");
 const cors = require("cors");
 
@@ -16,15 +15,14 @@ const allowedOrigins = [
     "http://localhost:5500"
 ];
 
-app.use(cors({
-    origin: allowedOrigins,
-    methods: ["GET", "POST"]
-}));
+app.use(
+    cors({
+        origin: allowedOrigins,
+        methods: ["GET", "POST"]
+    })
+);
 
 app.use(express.json());
-
-// نمایش فایل‌های پروژه
-app.use(express.static(__dirname));
 
 const io = new Server(server, {
     cors: {
@@ -33,12 +31,56 @@ const io = new Server(server, {
     }
 });
 
-// صفحه اصلی
+// صفحه اصلی سرور
 app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "index.html"));
+    res.status(200).send(`
+        <!DOCTYPE html>
+        <html lang="fa" dir="rtl">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Milad Game Server</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    text-align: center;
+                    padding: 50px;
+                    background: #f5f5f5;
+                }
+
+                .box {
+                    max-width: 500px;
+                    margin: auto;
+                    padding: 30px;
+                    background: white;
+                    border-radius: 15px;
+                    box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+                }
+
+                h1 {
+                    color: #222;
+                }
+
+                .ok {
+                    color: green;
+                    font-weight: bold;
+                }
+            </style>
+        </head>
+
+        <body>
+            <div class="box">
+                <h1>🎲 Milad Game Server</h1>
+                <p class="ok">✅ سرور با موفقیت فعال است</p>
+                <p>Socket.IO آماده دریافت بازیکنان است.</p>
+                <p>Server Port: ${PORT}</p>
+            </div>
+        </body>
+        </html>
+    `);
 });
 
-// تست سلامت سرور
+// بررسی سلامت سرور
 app.get("/health", (req, res) => {
     res.status(200).json({
         status: "ok",
@@ -50,7 +92,7 @@ app.get("/health", (req, res) => {
 // اتاق‌های بازی
 const rooms = new Map();
 
-// ساخت کد ۶ رقمی
+// ساخت کد ۶ رقمی اتاق
 function createRoomCode() {
     let code;
 
@@ -63,6 +105,7 @@ function createRoomCode() {
     return code;
 }
 
+// اتصال بازیکن
 io.on("connection", (socket) => {
 
     console.log("Player connected:", socket.id);
@@ -81,7 +124,7 @@ io.on("connection", (socket) => {
         socket.roomCode = roomCode;
 
         socket.emit("roomCreated", {
-            roomCode
+            roomCode: roomCode
         });
 
         console.log(
@@ -123,7 +166,7 @@ io.on("connection", (socket) => {
         socket.roomCode = roomCode;
 
         socket.emit("joinedRoom", {
-            roomCode
+            roomCode: roomCode
         });
 
         io.to(roomCode).emit(
@@ -152,59 +195,46 @@ io.on("connection", (socket) => {
         );
     });
 
-    // ارسال حرکت
+    // ارسال حرکت بازی
     socket.on("gameMove", (data) => {
 
-        const roomCode =
-            socket.roomCode;
+        const roomCode = socket.roomCode;
 
         if (!roomCode) return;
 
         socket
             .to(roomCode)
-            .emit(
-                "gameMove",
-                data
-            );
+            .emit("gameMove", data);
     });
 
     // ارسال وضعیت کامل بازی
     socket.on("gameState", (data) => {
 
-        const roomCode =
-            socket.roomCode;
+        const roomCode = socket.roomCode;
 
         if (!roomCode) return;
 
         socket
             .to(roomCode)
-            .emit(
-                "gameState",
-                data
-            );
+            .emit("gameState", data);
     });
 
     // ارسال تاس
     socket.on("diceRolled", (data) => {
 
-        const roomCode =
-            socket.roomCode;
+        const roomCode = socket.roomCode;
 
         if (!roomCode) return;
 
         socket
             .to(roomCode)
-            .emit(
-                "diceRolled",
-                data
-            );
+            .emit("diceRolled", data);
     });
 
     // چت
     socket.on("chatMessage", (data) => {
 
-        const roomCode =
-            socket.roomCode;
+        const roomCode = socket.roomCode;
 
         if (!roomCode) return;
 
@@ -215,9 +245,7 @@ io.on("connection", (socket) => {
 
             sender: socket.id,
 
-            time:
-                new Date()
-                .toISOString()
+            time: new Date().toISOString()
         };
 
         io.to(roomCode).emit(
@@ -226,7 +254,7 @@ io.on("connection", (socket) => {
         );
     });
 
-    // قطع اتصال
+    // قطع اتصال بازیکن
     socket.on("disconnect", () => {
 
         console.log(
@@ -234,32 +262,25 @@ io.on("connection", (socket) => {
             socket.id
         );
 
-        const roomCode =
-            socket.roomCode;
+        const roomCode = socket.roomCode;
 
         if (!roomCode) return;
 
-        const room =
-            rooms.get(roomCode);
+        const room = rooms.get(roomCode);
 
         if (!room) return;
 
-        room.players =
-            room.players.filter(
-                id => id !== socket.id
-            );
+        room.players = room.players.filter(
+            id => id !== socket.id
+        );
 
         io.to(roomCode).emit(
             "playerDisconnected"
         );
 
-        if (
-            room.players.length === 0
-        ) {
+        if (room.players.length === 0) {
 
-            rooms.delete(
-                roomCode
-            );
+            rooms.delete(roomCode);
 
             console.log(
                 "Room deleted:",
@@ -271,8 +292,7 @@ io.on("connection", (socket) => {
             io.to(roomCode).emit(
                 "playersUpdate",
                 {
-                    players:
-                        room.players.length
+                    players: room.players.length
                 }
             );
         }
@@ -280,6 +300,7 @@ io.on("connection", (socket) => {
 
 });
 
+// اجرای سرور
 server.listen(
     PORT,
     "0.0.0.0",
