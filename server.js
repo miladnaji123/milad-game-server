@@ -18,7 +18,10 @@ const io = new Server(server, {
     }
 });
 
+// ==============================
 // صفحه اصلی
+// ==============================
+
 app.get("/", (req, res) => {
     res.status(200).send(`
         <!DOCTYPE html>
@@ -38,7 +41,10 @@ app.get("/", (req, res) => {
     `);
 });
 
-// بررسی سلامت سرور
+// ==============================
+// Health Check
+// ==============================
+
 app.get("/health", (req, res) => {
     res.status(200).json({
         status: "ok",
@@ -47,10 +53,12 @@ app.get("/health", (req, res) => {
     });
 });
 
+// ==============================
 // اتاق‌ها
+// ==============================
+
 const rooms = new Map();
 
-// ساخت کد ۶ رقمی
 function createRoomCode() {
     let code;
 
@@ -63,19 +71,26 @@ function createRoomCode() {
     return code;
 }
 
-// اتصال بازیکن
+// ==============================
+// Socket.IO
+// ==============================
+
 io.on("connection", (socket) => {
 
     console.log("🟢 Player connected:", socket.id);
 
+    // ==========================
     // ساخت اتاق
+    // ==========================
+
     socket.on("createRoom", () => {
 
         const roomCode = createRoomCode();
 
         rooms.set(roomCode, {
             players: [socket.id],
-            gameState: null
+            gameState: null,
+            createdAt: Date.now()
         });
 
         socket.join(roomCode);
@@ -94,7 +109,10 @@ io.on("connection", (socket) => {
         console.log("🏠 Room created:", roomCode);
     });
 
+    // ==========================
     // ورود به اتاق
+    // ==========================
+
     socket.on("joinRoom", (code) => {
 
         const roomCode = String(code || "").trim();
@@ -129,9 +147,16 @@ io.on("connection", (socket) => {
             players: room.players.length
         });
 
-        console.log("👤 Player joined:", roomCode);
+        console.log(
+            "👤 Player joined:",
+            roomCode,
+            socket.id
+        );
 
+        // ==========================
         // شروع بازی
+        // ==========================
+
         if (room.players.length === 2) {
 
             room.gameState = {
@@ -141,13 +166,16 @@ io.on("connection", (socket) => {
                     -5, 0, 0, 0, 3, 0,
                     5, 0, 0, 0, 0, -2
                 ],
+
                 dice: [0, 0],
+
                 remainingDice: [],
+
                 turn: 0
             };
 
             io.to(roomCode).emit("gameReady", {
-                message: "🎲 بازی آماده است!"
+                message: "🎲 هر دو بازیکن وارد شدند. بازی آماده است!"
             });
 
             io.to(roomCode).emit(
@@ -155,11 +183,17 @@ io.on("connection", (socket) => {
                 room.gameState
             );
 
-            console.log("🎮 Game ready:", roomCode);
+            console.log(
+                "🎮 Game ready:",
+                roomCode
+            );
         }
     });
 
+    // ==========================
     // تاس
+    // ==========================
+
     socket.on("diceRolled", (data) => {
 
         const roomCode = socket.roomCode;
@@ -170,9 +204,12 @@ io.on("connection", (socket) => {
 
         if (!room) return;
 
-        if (!Array.isArray(data?.dice)) return;
-
-        if (data.dice.length !== 2) return;
+        if (
+            !Array.isArray(data?.dice) ||
+            data.dice.length !== 2
+        ) {
+            return;
+        }
 
         const d1 = Number(data.dice[0]);
         const d2 = Number(data.dice[1]);
@@ -197,7 +234,10 @@ io.on("connection", (socket) => {
         );
     });
 
+    // ==========================
     // وضعیت بازی
+    // ==========================
+
     socket.on("gameState", (data) => {
 
         const roomCode = socket.roomCode;
@@ -209,21 +249,26 @@ io.on("connection", (socket) => {
         if (!room) return;
 
         room.gameState = {
-            board: Array.isArray(data?.board)
-                ? data.board
-                : room.gameState?.board || [],
 
-            dice: Array.isArray(data?.dice)
-                ? data.dice
-                : [0, 0],
+            board:
+                Array.isArray(data?.board)
+                    ? data.board
+                    : room.gameState?.board || [],
 
-            remainingDice: Array.isArray(data?.remainingDice)
-                ? data.remainingDice
-                : [],
+            dice:
+                Array.isArray(data?.dice)
+                    ? data.dice
+                    : [0, 0],
 
-            turn: Number.isInteger(data?.turn)
-                ? data.turn
-                : 0
+            remainingDice:
+                Array.isArray(data?.remainingDice)
+                    ? data.remainingDice
+                    : [],
+
+            turn:
+                Number.isInteger(data?.turn)
+                    ? data.turn
+                    : 0
         };
 
         socket.to(roomCode).emit(
@@ -232,7 +277,10 @@ io.on("connection", (socket) => {
         );
     });
 
+    // ==========================
     // حرکت مهره
+    // ==========================
+
     socket.on("gameMove", (data) => {
 
         const roomCode = socket.roomCode;
@@ -248,31 +296,45 @@ io.on("connection", (socket) => {
             data
         );
 
-        console.log("♟️ Game move:", roomCode);
+        console.log(
+            "♟️ Game move:",
+            roomCode
+        );
     });
 
+    // ==========================
     // چت
+    // ==========================
+
     socket.on("chatMessage", (data) => {
 
         const roomCode = socket.roomCode;
 
         if (!roomCode) return;
 
-        const text = String(data?.text || "")
+        const text = String(
+            data?.text || ""
+        )
             .trim()
             .slice(0, 500);
 
         if (!text) return;
 
-        io.to(roomCode).emit("chatMessage", {
-            text: text,
-            sender: socket.id,
-            player: socket.playerIndex,
-            time: new Date().toISOString()
-        });
+        io.to(roomCode).emit(
+            "chatMessage",
+            {
+                text: text,
+                sender: socket.id,
+                player: socket.playerIndex,
+                time: new Date().toISOString()
+            }
+        );
     });
 
+    // ==========================
     // قطع اتصال
+    // ==========================
+
     socket.on("disconnect", () => {
 
         console.log(
@@ -291,3 +353,66 @@ io.on("connection", (socket) => {
         room.players = room.players.filter(
             id => id !== socket.id
         );
+
+        io.to(roomCode).emit(
+            "playerDisconnected"
+        );
+
+        if (room.players.length === 0) {
+
+            rooms.delete(roomCode);
+
+            console.log(
+                "🗑️ Room deleted:",
+                roomCode
+            );
+
+        } else {
+
+            io.to(roomCode).emit(
+                "playersUpdate",
+                {
+                    players: room.players.length
+                }
+            );
+
+            console.log(
+                "👤 Remaining player:",
+                room.players[0]
+            );
+        }
+    });
+
+});
+
+// ==============================
+// شروع سرور
+// ==============================
+
+server.listen(
+    PORT,
+    "0.0.0.0",
+    () => {
+
+        console.log(
+            "================================="
+        );
+
+        console.log(
+            "🎲 Milad Game Server Started"
+        );
+
+        console.log(
+            "PORT:",
+            PORT
+        );
+
+        console.log(
+            "Host: 0.0.0.0"
+        );
+
+        console.log(
+            "================================="
+        );
+    }
+);
