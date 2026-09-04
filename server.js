@@ -27,67 +27,82 @@ const io = new Server(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  transports: ["websocket", "polling"]
 });
 
 let waitingPlayer = null;
 const games = new Map();
 
-const initialBoard = [
-  2, 0, 0, 0, 0, -5,
-  0, -3, 0, 0, 0, 5,
+const START_BOARD = [
+   2, 0, 0, 0, 0,-5,
+   0,-3, 0, 0, 0, 5,
   -5, 0, 0, 0, 3, 0,
-  5, 0, 0, 0, 0, -2
+   5, 0, 0, 0, 0,-2
 ];
 
-function createGame(player1, player2) {
-  const gameId =
-    `${player1.id}_${player2.id}_${Date.now()}`;
+function createGame(p1, p2) {
+  const id = `${p1.id}_${p2.id}_${Date.now()}`;
 
   const game = {
-    id: gameId,
-    players: [player1.id, player2.id],
-    turn: player1.id,
-    board: [...initialBoard],
-    dice: []
+    id,
+    players: [p1.id, p2.id],
+    turn: p1.id,
+    board: [...START_BOARD],
+    dice: [],
+    remainingMoves: [],
+    bar: {
+      1: 0,
+      2: 0
+    },
+    borneOff: {
+      1: 0,
+      2: 0
+    }
   };
 
-  games.set(gameId, game);
+  games.set(id, game);
 
-  player1.join(gameId);
-  player2.join(gameId);
+  p1.join(id);
+  p2.join(id);
 
   return game;
 }
 
-io.on("connection", (socket) => {
+function sendState(game) {
+  io.to(game.id).emit("gameState", {
+    gameId: game.id,
+    board: game.board,
+    dice: game.dice,
+    remainingMoves: game.remainingMoves,
+    turn: game.turn,
+    bar: game.bar,
+    borneOff: game.borneOff
+  });
+}
+
+io.on("connection", socket => {
   console.log("Player connected:", socket.id);
 
-  // =========================================
-  // ورود سریع بدون کد اتاق
-  // =========================================
   socket.on("quickJoin", () => {
 
-    // اگر بازیکن دیگری منتظر باشد
-    if (waitingPlayer) {
+    if (waitingPlayer && waitingPlayer.id !== socket.id) {
 
-      const player1 = waitingPlayer;
-      const player2 = socket;
+      const p1 = waitingPlayer;
+      const p2 = socket;
 
       waitingPlayer = null;
 
-      const game = createGame(player1, player2);
+      const game = createGame(p1, p2);
 
-      player1.emit("matched", {
+      p1.emit("matched", {
         gameId: game.id,
-        player: 1,
-        message: "حریف پیدا شد 🎲"
+        player: 1
       });
 
-      player2.emit("matched", {
+      p2.emit("matched", {
         gameId: game.id,
-        player: 2,
-        message: "حریف پیدا شد 🎲"
+        player: 2
       });
 
       io.to(game.id).emit("playersUpdate", {
@@ -96,37 +111,31 @@ io.on("connection", (socket) => {
 
       io.to(game.id).emit("gameReady", {
         gameId: game.id,
-        player1: player1.id,
-        player2: player2.id,
+        player1: p1.id,
+        player2: p2.id,
         turn: game.turn,
-        board: game.board
+        board: game.board,
+        dice: [],
+        remainingMoves: [],
+        bar: game.bar,
+        borneOff: game.borneOff
       });
 
-      console.log(
-        "Game created:",
-        game.id
-      );
+      console.log("Game created:", game.id);
 
     } else {
 
-      // اولین بازیکن وارد صف انتظار می‌شود
       waitingPlayer = socket;
 
       socket.emit("waiting", {
-        message: "منتظر پیدا شدن حریف هستید... ⏳"
+        message: "⏳ منتظر پیدا شدن حریف هستید..."
       });
 
-      console.log(
-        "Player waiting:",
-        socket.id
-      );
+      console.log("Player waiting:", socket.id);
     }
   });
 
-  // =========================================
-  // وضعیت بازی
-  // =========================================
-  socket.on("gameState", (data) => {
+  socket.on("rollDice", data => {
 
     if (!data || !data.gameId) return;
 
@@ -136,75 +145,165 @@ io.on("connection", (socket) => {
 
     if (!game.players.includes(socket.id)) return;
 
-    if (data.board) {
-      game.board = data.board;
+    if (game.turn !== socket.id) return;
+
+    if (game.remainingMoves.length > 0) return;
+
+    const d1 = Math.floor(Math.random() * 6) + 1;
+    const d2 = Math.floor(Math.random() * 6) + 1;
+
+    game.dice = [d1, d2];
+
+    if (d1 === d2) {
+      game.remainingMoves = [
+        d1,
+        d1,
+        d1,
+        d1
+      ];
+    } else {
+      game.remainingMoves = [
+        d1,
+        d2
+      ];
     }
 
-    if (data.dice) {
-      game.dice = data.dice;
-    }
+    sendState(game);
 
-    if (data.turn) {
-      game.turn = data.turn;
-    }
-
-    socket.to(data.gameId).emit("gameState", {
-      board: game.board,
-      dice: game.dice,
-      turn: game.turn
-    });
-  });
-
-  // =========================================
-  // تاس
-  // =========================================
-  socket.on("diceRolled", (data) => {
-
-    if (!data || !data.gameId) return;
-
-    const game = games.get(data.gameId);
-
-    if (!game) return;
-
-    if (!game.players.includes(socket.id)) return;
-
-    game.dice = data.dice || [];
-
-    socket.to(data.gameId).emit("diceRolled", {
-      dice: game.dice
-    });
-  });
-
-  // =========================================
-  // چت
-  // =========================================
-  socket.on("chatMessage", (data) => {
-
-    if (!data) return;
-    if (!data.gameId) return;
-    if (!data.message) return;
-
-    const game = games.get(data.gameId);
-
-    if (!game) return;
-
-    if (!game.players.includes(socket.id)) return;
-
-    const message = {
-      sender: socket.id,
-      message: String(data.message).slice(0, 500),
-      time: Date.now()
-    };
-
-    io.to(data.gameId).emit(
-      "chatMessage",
-      message
+    console.log(
+      "Dice:",
+      socket.id,
+      game.dice
     );
   });
 
-  // =========================================
-  // خروج بازیکن
-  // =========================================
+  socket.on("move", data => {
+
+    if (!data || !data.gameId) return;
+
+    const game = games.get(data.gameId);
+
+    if (!game) return;
+
+    if (!game.players.includes(socket.id)) return;
+
+    if (game.turn !== socket.id) return;
+
+    const from = Number(data.from);
+    const to = Number(data.to);
+
+    if (
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      from > 23 ||
+      to < 0 ||
+      to > 23
+    ) {
+      return;
+    }
+
+    const player =
+      game.players[0] === socket.id ? 1 : 2;
+
+    const mine = player === 1 ? 1 : -1;
+
+    if (game.board[from] * mine <= 0) {
+      socket.emit("moveError", {
+        message: "این مهره متعلق به شما نیست."
+      });
+      return;
+    }
+
+    let distance;
+
+    if (player === 1) {
+      distance = to - from;
+    } else {
+      distance = from - to;
+    }
+
+    if (distance <= 0) {
+      socket.emit("moveError", {
+        message: "جهت حرکت اشتباه است."
+      });
+      return;
+    }
+
+    const moveIndex =
+      game.remainingMoves.indexOf(distance);
+
+    if (moveIndex === -1) {
+      socket.emit("moveError", {
+        message: "این حرکت با تاس شما هماهنگ نیست."
+      });
+      return;
+    }
+
+    const target = game.board[to];
+
+    if (
+      target * mine < 0 &&
+      Math.abs(target) >= 2
+    ) {
+      socket.emit("moveError", {
+        message: "این خانه بسته است."
+      });
+      return;
+    }
+
+    game.board[from] -= mine;
+
+    if (target * mine < 0) {
+
+      game.board[to] = mine;
+
+      const opponent =
+        player === 1 ? 2 : 1;
+
+      game.bar[opponent]++;
+
+    } else {
+
+      game.board[to] += mine;
+    }
+
+    game.remainingMoves.splice(moveIndex, 1);
+
+    if (game.remainingMoves.length === 0) {
+
+      game.dice = [];
+
+      game.turn =
+        game.turn === game.players[0]
+          ? game.players[1]
+          : game.players[0];
+    }
+
+    sendState(game);
+  });
+
+  socket.on("chatMessage", data => {
+
+    if (!data || !data.gameId || !data.message) {
+      return;
+    }
+
+    const game = games.get(data.gameId);
+
+    if (!game) return;
+
+    if (!game.players.includes(socket.id)) {
+      return;
+    }
+
+    io.to(data.gameId).emit("chatMessage", {
+      sender: socket.id,
+      message: String(data.message).slice(0, 500),
+      time: Date.now()
+    });
+  });
+
   socket.on("disconnect", () => {
 
     console.log(
@@ -212,7 +311,6 @@ io.on("connection", (socket) => {
       socket.id
     );
 
-    // حذف از صف انتظار
     if (
       waitingPlayer &&
       waitingPlayer.id === socket.id
@@ -220,7 +318,6 @@ io.on("connection", (socket) => {
       waitingPlayer = null;
     }
 
-    // پیدا کردن بازی بازیکن
     for (const [gameId, game] of games.entries()) {
 
       if (game.players.includes(socket.id)) {
@@ -228,7 +325,7 @@ io.on("connection", (socket) => {
         socket.to(gameId).emit(
           "opponentDisconnected",
           {
-            message: "حریف از بازی خارج شد."
+            message: "⚠️ حریف از بازی خارج شد."
           }
         );
 
@@ -243,10 +340,8 @@ io.on("connection", (socket) => {
   });
 });
 
-// =========================================
-// شروع سرور
-// =========================================
-const PORT = process.env.PORT || 10000;
+const PORT =
+  process.env.PORT || 10000;
 
 server.listen(
   PORT,
